@@ -93,12 +93,17 @@ export async function readBlob<T>(key: string, fallback: T): Promise<T> {
 
 export async function writeBlob(key: string, value: unknown): Promise<void> {
   if (supabaseConfigured()) {
-    try {
-      await writeSupabaseBlob(key, value)
-      return
-    } catch {
-      // fall through to file so local/dev still works
+    let lastErr: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await writeSupabaseBlob(key, value)
+        return
+      } catch (e) {
+        lastErr = e
+        await new Promise((r) => setTimeout(r, 80 * (attempt + 1)))
+      }
     }
+    console.error('rsa_store write failed after retries', lastErr)
   }
   await writeFileBlob(key, value)
 }

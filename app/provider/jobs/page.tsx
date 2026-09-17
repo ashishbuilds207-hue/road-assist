@@ -79,7 +79,8 @@ function ProviderJobsInner() {
     if (!providerId) return
     try {
       const res = await fetch(
-        `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`
+        `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`,
+        { cache: 'no-store' }
       )
       if (!res.ok) return
       const data = await res.json()

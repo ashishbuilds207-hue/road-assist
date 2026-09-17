@@ -27,23 +27,29 @@ export default function ProviderInvoicesPage() {
 
   const load = useCallback(async () => {
     if (!providerId) return
-    const res = await fetch(
-      `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`
-    )
-    const data = await res.json()
-    const list = ((data.requests || []) as JobDetailRecord[]).filter(
-      (r) =>
-        r.jobPhase === 'PAID' ||
-        r.jobPhase === 'BILL_SUBMITTED' ||
-        r.bill?.status === 'PAID' ||
-        r.bill?.status === 'SUBMITTED'
-    )
-    setRows(list)
+    try {
+      const res = await fetch(
+        `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`,
+        { cache: 'no-store' }
+      )
+      if (!res.ok) return
+      const data = await res.json()
+      const list = ((data.requests || []) as JobDetailRecord[]).filter(
+        (r) =>
+          r.jobPhase === 'PAID' ||
+          r.jobPhase === 'BILL_SUBMITTED' ||
+          r.bill?.status === 'PAID' ||
+          r.bill?.status === 'SUBMITTED'
+      )
+      setRows(list)
+    } catch {
+      // keep previous — smooth shared updates
+    }
   }, [providerId])
 
   useEffect(() => {
     void load()
-    const id = setInterval(() => void load(), 4000)
+    const id = setInterval(() => void load(), 2000)
     return () => clearInterval(id)
   }, [load])
 

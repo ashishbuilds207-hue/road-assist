@@ -78,7 +78,9 @@ export default function DriverActiveClient() {
       params.set('caseId', caseIdParam)
     }
     try {
-      const res = await fetch(`/api/dispatch/requests?${params.toString()}`)
+      const res = await fetch(`/api/dispatch/requests?${params.toString()}`, {
+        cache: 'no-store',
+      })
       if (!res.ok) return
       const data = await res.json()
       setAllRequests((data.requests || []) as LiveRequest[])

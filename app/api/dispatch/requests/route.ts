@@ -8,6 +8,18 @@ import {
   updateJobWorkflow,
 } from '@/lib/dispatch/service-requests'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+function json(data: unknown, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+    },
+  })
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const providerId = searchParams.get('providerId') || undefined
@@ -19,7 +31,7 @@ export async function GET(req: Request) {
 
   if (bills) {
     const items = await listBillsForAdmin()
-    return NextResponse.json({
+    return json({
       requests: items.map((r) => ({
         ...r,
         secondsLeft: 0,
@@ -42,7 +54,7 @@ export async function GET(req: Request) {
         )[])
       : undefined,
   })
-  return NextResponse.json({
+  return json({
     requests: items.map((r) => ({
       ...r,
       secondsLeft: r.status === 'PENDING' ? secondsLeft(r.expiresAt) : 0,
@@ -54,9 +66,9 @@ export async function POST(req: Request) {
   try {
     const body = await req.json()
     if (!body.caseId || !body.providerId || !body.providerName) {
-      return NextResponse.json(
+      return json(
         { error: 'caseId, providerId, providerName required' },
-        { status: 400 }
+        400
       )
     }
 
@@ -79,16 +91,16 @@ export async function POST(req: Request) {
       providerUserId: body.providerUserId,
     })
 
-    return NextResponse.json({
+    return json({
       request: {
         ...row,
         secondsLeft: secondsLeft(row.expiresAt),
       },
     })
   } catch (e) {
-    return NextResponse.json(
+    return json(
       { error: e instanceof Error ? e.message : 'Failed' },
-      { status: 500 }
+      500
     )
   }
 }
@@ -107,10 +119,7 @@ export async function PATCH(req: Request) {
     const id = String(body.id || '')
     const action = String(body.action || '')
     if (!id || !action) {
-      return NextResponse.json(
-        { error: 'id and action required' },
-        { status: 400 }
-      )
+      return json({ error: 'id and action required' }, 400)
     }
 
     if (['accept', 'reject', 'cancel'].includes(action)) {
@@ -120,9 +129,9 @@ export async function PATCH(req: Request) {
         body.reason
       )
       if (!row) {
-        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+        return json({ error: 'Not found' }, 404)
       }
-      return NextResponse.json({
+      return json({
         request: {
           ...row,
           secondsLeft: row.status === 'PENDING' ? secondsLeft(row.expiresAt) : 0,
@@ -142,18 +151,18 @@ export async function PATCH(req: Request) {
         }
       )
       if (!row) {
-        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+        return json({ error: 'Not found' }, 404)
       }
-      return NextResponse.json({
+      return json({
         request: { ...row, secondsLeft: 0 },
       })
     }
 
-    return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+    return json({ error: 'Unknown action' }, 400)
   } catch (e) {
-    return NextResponse.json(
+    return json(
       { error: e instanceof Error ? e.message : 'Failed' },
-      { status: 500 }
+      500
     )
   }
 }

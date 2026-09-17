@@ -7,7 +7,9 @@ import {
   Building2,
   ClipboardList,
   Container,
+  CreditCard,
   LayoutDashboard,
+  Receipt,
   Shield,
   Truck,
   Users,
@@ -23,6 +25,13 @@ const groups: PortalNavGroup[] = [
       { href: '/admin/approvals', label: 'Approvals', icon: <Shield className="size-4" /> },
       { href: '/admin/operations', label: 'Live Operations', icon: <Activity className="size-4" /> },
       { href: '/admin/cases', label: 'Cases', icon: <ClipboardList className="size-4" /> },
+    ],
+  },
+  {
+    title: 'Payments',
+    items: [
+      { href: '/admin/invoices', label: 'Pay & Accept', icon: <CreditCard className="size-4" /> },
+      { href: '/admin/invoices?tab=all', label: 'All Invoices', icon: <Receipt className="size-4" /> },
     ],
   },
   {

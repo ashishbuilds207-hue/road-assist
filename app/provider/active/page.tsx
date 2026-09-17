@@ -39,16 +39,22 @@ export default function ProviderActivePage() {
 
   const load = useCallback(async () => {
     if (!providerId) return
-    const res = await fetch(
-      `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`
-    )
-    const data = await res.json()
-    setRows((data.requests || []) as Row[])
+    try {
+      const res = await fetch(
+        `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`,
+        { cache: 'no-store' }
+      )
+      if (!res.ok) return
+      const data = await res.json()
+      setRows((data.requests || []) as Row[])
+    } catch {
+      // keep previous — smooth shared updates
+    }
   }, [providerId])
 
   useEffect(() => {
     void load()
-    const id = setInterval(() => void load(), 3000)
+    const id = setInterval(() => void load(), 2000)
     return () => clearInterval(id)
   }, [load])
 

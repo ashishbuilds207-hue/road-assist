@@ -350,11 +350,13 @@ export async function listBillsForAdmin() {
   const list = await listServiceRequests()
   return list.filter(
     (r) =>
-      r.bill &&
+      Boolean(r.bill) &&
       (r.jobPhase === 'BILL_SUBMITTED' ||
         r.jobPhase === 'PAID' ||
-        r.bill.status === 'SUBMITTED' ||
-        r.bill.status === 'PAID')
+        r.jobPhase === 'COMPLETED' ||
+        r.bill?.status === 'SUBMITTED' ||
+        r.bill?.status === 'PAID' ||
+        r.bill?.status === 'DRAFT')
   )
 }
 
