@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import {
-  deleteRegistration,
   listRegistrations,
+  purgeRegistrationCompletely,
   setRegistrationStatus,
   type RegistrationRecord,
 } from '@/lib/registration/store'
@@ -17,7 +17,12 @@ async function fetchFromSupabase(role?: string, status?: string) {
     params.set('select', '*')
     params.set('order', 'created_at.desc')
     if (role) params.set('role', `eq.${role}`)
-    if (status) params.set('status', `eq.${status}`)
+    if (status) {
+      params.set('status', `eq.${status}`)
+    } else {
+      // Never pull soft-deleted rows back into the admin panel
+      params.set('status', 'neq.DEACTIVATED')
+    }
 
     const res = await fetch(
       `${url}/rest/v1/registration_requests?${params.toString()}`,
@@ -31,7 +36,9 @@ async function fetchFromSupabase(role?: string, status?: string) {
     )
     if (!res.ok) return []
     const rows = (await res.json()) as RegistrationRecord[]
-    return Array.isArray(rows) ? rows : []
+    return Array.isArray(rows)
+      ? rows.filter((r) => r.status !== 'DEACTIVATED')
+      : []
   } catch {
     return []
   }
@@ -61,6 +68,7 @@ export async function GET(req: Request) {
 
   const map = new Map<string, RegistrationRecord>()
   for (const item of [...remote, ...local]) {
+    if (item.status === 'DEACTIVATED') continue
     const key = item.id || `${item.phone}-${item.role}`
     const prev = map.get(key)
     if (!prev) {
@@ -72,7 +80,9 @@ export async function GET(req: Request) {
     if (nextTime >= prevTime) map.set(key, item)
   }
 
-  let items = Array.from(map.values())
+  let items = Array.from(map.values()).filter(
+    (i) => i.status !== 'DEACTIVATED'
+  )
   if (role) items = items.filter((i) => i.role === role)
   if (statusFilter === 'PENDING_APPROVAL') {
     items = items.filter(
@@ -103,22 +113,11 @@ export async function POST(req: Request) {
     }
 
     if (action === 'delete') {
-      // Soft-delete so status polls still work; hard remove breaks Vercel /tmp sessions
-      const updated = await setRegistrationStatus(
-        id,
-        'DEACTIVATED',
-        body.reason || 'Deleted by admin'
-      )
-      if (!updated) {
-        const removed = await deleteRegistration(id)
-        if (!removed) {
-          return NextResponse.json({ error: 'Not found' }, { status: 404 })
-        }
-        return NextResponse.json({ deleted: true, registration: removed })
-      }
+      // Hard delete — remove all stored user data (panel + SQL/blob)
+      const removed = await purgeRegistrationCompletely(id)
       return NextResponse.json({
         deleted: true,
-        registration: updated,
+        registration: removed || { id, status: 'DELETED' },
       })
     }
 

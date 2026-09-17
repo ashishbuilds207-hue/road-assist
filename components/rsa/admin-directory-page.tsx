@@ -154,7 +154,7 @@ export function AdminDirectoryPage({
       setSelected((s) => (s?.id === id ? null : s))
       toast({
         title: 'Deleted',
-        description: `${prev.full_name} removed. They will be logged out.`,
+        description: `${prev.full_name} permanently removed from the panel.`,
       })
     } else if (action === 'block') {
       setItems((list) =>

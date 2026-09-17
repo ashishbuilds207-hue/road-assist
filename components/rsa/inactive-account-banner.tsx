@@ -34,8 +34,18 @@ export function InactiveAccountBanner() {
       if (!url) return
 
       const res = await fetch(url, { cache: 'no-store' })
-      // Missing registration — keep session; do not force logout
-      if (res.status === 404) return
+      // Missing registration after hard delete — mark deactivated
+      if (res.status === 404) {
+        const current = useAuthStore.getState().accountStatus
+        if (current !== 'DEACTIVATED') {
+          setAccountStatus('DEACTIVATED')
+          toast({
+            title: 'Account deleted',
+            description: 'This account was removed by an admin.',
+          })
+        }
+        return
+      }
       if (!res.ok) {
         console.warn('registration-status failed', res.status)
         return
