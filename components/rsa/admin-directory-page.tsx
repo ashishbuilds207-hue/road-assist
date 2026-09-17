@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Eye,
   Loader2,
@@ -70,6 +70,8 @@ function statusBadge(status: string) {
     return { variant: 'danger' as const, label: 'Blocked' }
   if (status === 'REJECTED')
     return { variant: 'danger' as const, label: 'Rejected' }
+  if (status === 'DEACTIVATED')
+    return { variant: 'danger' as const, label: 'Deleted' }
   if (status === 'PENDING' || status === 'PENDING_APPROVAL')
     return { variant: 'pending' as const, label: 'Pending' }
   return { variant: 'pending' as const, label: status }
@@ -90,8 +92,10 @@ export function AdminDirectoryPage({
   const [previewDoc, setPreviewDoc] = useState<DocItem | null>(null)
   const [acting, setActing] = useState<string | null>(null)
   const [source, setSource] = useState<string>('')
+  const actingRef = useRef<string | null>(null)
 
   const load = useCallback(async (silent = false) => {
+    if (actingRef.current) return
     if (silent) setRefreshing(true)
     else setLoading(true)
     try {
@@ -101,7 +105,11 @@ export function AdminDirectoryPage({
       )
       if (!res.ok) return
       const data = await res.json()
-      setItems(data.items || [])
+      if (actingRef.current) return
+      const list = ((data.items || []) as DirectoryUser[]).filter(
+        (i) => i.status !== 'DEACTIVATED'
+      )
+      setItems(list)
       setSource(data.source || '')
     } catch {
       if (!silent) setItems([])
@@ -123,63 +131,89 @@ export function AdminDirectoryPage({
     e?: React.MouseEvent
   ) => {
     e?.stopPropagation()
-    if (action === 'delete') {
-      const ok = window.confirm(
-        'Delete this account permanently? The user will be signed out immediately.'
-      )
-      if (!ok) return
-    }
-    if (action === 'block') {
-      const ok = window.confirm(
-        'Block this account? The user will see blocked status right away.'
-      )
-      if (!ok) return
-    }
+    if (acting === id) return
 
+    const prev = items.find((i) => i.id === id)
+    if (!prev) return
+
+    // Instant UI — no confirm wait
+    actingRef.current = id
     setActing(id)
-    const res = await fetch('/api/admin/registrations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id,
-        action,
-        reason:
-          action === 'block'
-            ? 'Blocked by admin'
-            : action === 'delete'
-              ? 'Deleted by admin'
-              : undefined,
-      }),
-    })
-    const data = await res.json()
-    setActing(null)
-    if (!res.ok) {
-      toast({ title: 'Failed', description: data.error })
-      return
-    }
-
     if (action === 'delete') {
+      setItems((list) => list.filter((i) => i.id !== id))
+      setSelected((s) => (s?.id === id ? null : s))
       toast({
         title: 'Deleted',
-        description: `${data.registration?.full_name || 'User'} removed. They will be logged out.`,
+        description: `${prev.full_name} removed. They will be logged out.`,
       })
-      setSelected((prev) => (prev?.id === id ? null : prev))
-      void load(true)
-      return
+    } else if (action === 'block') {
+      setItems((list) =>
+        list.map((i) => (i.id === id ? { ...i, status: 'SUSPENDED' } : i))
+      )
+      setSelected((s) =>
+        s?.id === id ? { ...s, status: 'SUSPENDED' } : s
+      )
+      toast({
+        title: 'Blocked',
+        description: `${prev.full_name} → BLOCKED`,
+      })
+    } else {
+      const next = action === 'reject' ? 'REJECTED' : 'ACTIVE'
+      setItems((list) =>
+        list.map((i) => (i.id === id ? { ...i, status: next } : i))
+      )
+      setSelected((s) => (s?.id === id ? { ...s, status: next } : s))
+      toast({
+        title: 'Updated',
+        description: `${prev.full_name} → ${next}`,
+      })
     }
 
-    toast({
-      title: action === 'block' ? 'Blocked' : 'Updated',
-      description: `${data.registration.full_name} → ${
-        data.registration.status === 'SUSPENDED'
-          ? 'BLOCKED'
-          : data.registration.status
-      }`,
-    })
-    setSelected((prev) =>
-      prev?.id === id ? { ...prev, status: data.registration.status } : prev
-    )
-    void load(true)
+    try {
+      const res = await fetch('/api/admin/registrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          action,
+          reason:
+            action === 'block'
+              ? 'Blocked by admin'
+              : action === 'delete'
+                ? 'Deleted by admin'
+                : undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        // Revert optimistic change
+        setItems((list) => {
+          if (action === 'delete') {
+            const exists = list.some((i) => i.id === id)
+            return exists ? list : [...list, prev]
+          }
+          return list.map((i) => (i.id === id ? prev : i))
+        })
+        setSelected((s) => (s?.id === id ? prev : s))
+        toast({
+          title: 'Failed',
+          description: data.error || 'Could not update. Restored previous status.',
+        })
+      }
+    } catch {
+      setItems((list) => {
+        if (action === 'delete') {
+          const exists = list.some((i) => i.id === id)
+          return exists ? list : [...list, prev]
+        }
+        return list.map((i) => (i.id === id ? prev : i))
+      })
+      setSelected((s) => (s?.id === id ? prev : s))
+      toast({ title: 'Failed', description: 'Network error. Status restored.' })
+    } finally {
+      actingRef.current = null
+      setActing(null)
+    }
   }
 
   const title = ROLE_LABEL[role] || role
