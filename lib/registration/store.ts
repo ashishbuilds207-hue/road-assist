@@ -2,8 +2,9 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import type { UserRole } from '@/types/database'
 import { isInUSA } from '@/lib/location/usa'
+import { getDataDir } from '@/lib/data-dir'
 
-const DATA_DIR = path.join(process.cwd(), '.data')
+const DATA_DIR = getDataDir()
 const OTP_FILE = path.join(DATA_DIR, 'otp.json')
 const REG_FILE = path.join(DATA_DIR, 'registrations.json')
 

@@ -1,7 +1,8 @@
 import { promises as fs } from 'fs'
 import path from 'path'
+import { getDataDir } from '@/lib/data-dir'
 
-const DATA_DIR = path.join(process.cwd(), '.data')
+const DATA_DIR = getDataDir()
 const FILE = path.join(DATA_DIR, 'service-requests.json')
 
 export const PROVIDER_ACCEPT_SECONDS = 5 * 60
