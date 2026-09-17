@@ -101,7 +101,7 @@ export function useLiveChat(opts: {
         `/api/chat/live?conversationId=${encodeURIComponent(conversationId)}`
       )
       if (!res.ok) {
-        setConnected(false)
+        // keep last messages — avoid vanish on blips
         return
       }
       const data = await res.json()
@@ -112,6 +112,12 @@ export function useLiveChat(opts: {
         ...m,
         mine: m.senderId === userId,
       }))
+
+      // Don't wipe a non-empty chat with a transient empty payload
+      if (list.length === 0 && !firstLoad.current) {
+        setTyping(null)
+        return
+      }
 
       const incoming: LiveMessage[] = []
       for (const m of list) {

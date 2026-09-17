@@ -1,12 +1,9 @@
-import { promises as fs } from 'fs'
-import path from 'path'
 import type { UserRole } from '@/types/database'
 import { isInUSA } from '@/lib/location/usa'
-import { getDataDir } from '@/lib/data-dir'
+import { readBlob, writeBlob } from '@/lib/store/blob-store'
 
-const DATA_DIR = getDataDir()
-const OTP_FILE = path.join(DATA_DIR, 'otp.json')
-const REG_FILE = path.join(DATA_DIR, 'registrations.json')
+const OTP_KEY = 'otp'
+const REG_KEY = 'registrations'
 
 export type RegistrationStatus =
   | 'PENDING_APPROVAL'
@@ -79,22 +76,12 @@ type OtpFile = {
 
 type RegFile = { items: RegistrationRecord[] }
 
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true })
+async function readJson<T>(key: string, fallback: T): Promise<T> {
+  return readBlob(key, fallback)
 }
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    const raw = await fs.readFile(file, 'utf8')
-    return JSON.parse(raw) as T
-  } catch {
-    return fallback
-  }
-}
-
-async function writeJson(file: string, data: unknown) {
-  await ensureDir()
-  await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf8')
+async function writeJson(key: string, data: unknown) {
+  await writeBlob(key, data)
 }
 
 export function normalizePhone(phone: string): string {
@@ -105,13 +92,13 @@ export function normalizePhone(phone: string): string {
 }
 
 export async function getFixedOtpCode(): Promise<string> {
-  const otp = await readJson<OtpFile>(OTP_FILE, {
+  const otp = await readJson<OtpFile>(OTP_KEY, {
     fixedCode: process.env.NEXT_PUBLIC_PLATFORM_OTP || process.env.NEXT_PUBLIC_DEMO_OTP || '123456',
     requests: [],
   })
   if (!otp.fixedCode) {
     otp.fixedCode = '123456'
-    await writeJson(OTP_FILE, otp)
+    await writeJson(OTP_KEY, otp)
   }
   return otp.fixedCode
 }
@@ -119,7 +106,7 @@ export async function getFixedOtpCode(): Promise<string> {
 export async function requestOtp(phone: string, role: UserRole) {
   const normalized = normalizePhone(phone)
   const code = await getFixedOtpCode()
-  const otp = await readJson<OtpFile>(OTP_FILE, { fixedCode: code, requests: [] })
+  const otp = await readJson<OtpFile>(OTP_KEY, { fixedCode: code, requests: [] })
   otp.fixedCode = code
   otp.requests.unshift({
     phone: normalized,
@@ -128,7 +115,7 @@ export async function requestOtp(phone: string, role: UserRole) {
     createdAt: new Date().toISOString(),
   })
   otp.requests = otp.requests.slice(0, 200)
-  await writeJson(OTP_FILE, otp)
+  await writeJson(OTP_KEY, otp)
   return { phone: normalized, code, autofill: code }
 }
 
@@ -140,7 +127,7 @@ export async function verifyOtp(phone: string, code: string) {
 }
 
 export async function listRegistrations(status?: RegistrationStatus) {
-  const file = await readJson<RegFile>(REG_FILE, { items: [] })
+  const file = await readJson<RegFile>(REG_KEY, { items: [] })
   if (!status) return file.items
   if (status === 'PENDING_APPROVAL' || status === 'PENDING') {
     return file.items.filter(
@@ -175,7 +162,7 @@ export async function upsertRegistration(
     status?: RegistrationStatus
   }
 ): Promise<RegistrationRecord> {
-  const file = await readJson<RegFile>(REG_FILE, { items: [] })
+  const file = await readJson<RegFile>(REG_KEY, { items: [] })
   const now = new Date().toISOString()
   const phone = normalizePhone(input.phone)
   const existingIdx = file.items.findIndex(
@@ -193,7 +180,7 @@ export async function upsertRegistration(
       updated_at: now,
     }
     file.items[existingIdx] = next
-    await writeJson(REG_FILE, file)
+    await writeJson(REG_KEY, file)
     return next
   }
 
@@ -228,7 +215,7 @@ export async function upsertRegistration(
     updated_at: now,
   }
   file.items.unshift(created)
-  await writeJson(REG_FILE, file)
+  await writeJson(REG_KEY, file)
   return created
 }
 
@@ -237,7 +224,7 @@ export async function setRegistrationStatus(
   status: RegistrationStatus,
   reason?: string
 ) {
-  const file = await readJson<RegFile>(REG_FILE, { items: [] })
+  const file = await readJson<RegFile>(REG_KEY, { items: [] })
   const idx = file.items.findIndex((i) => i.id === id)
   if (idx < 0) return null
   const now = new Date().toISOString()
@@ -248,16 +235,16 @@ export async function setRegistrationStatus(
     rejection_reason: reason ?? null,
     updated_at: now,
   }
-  await writeJson(REG_FILE, file)
+  await writeJson(REG_KEY, file)
   return file.items[idx]
 }
 
 export async function deleteRegistration(id: string) {
-  const file = await readJson<RegFile>(REG_FILE, { items: [] })
+  const file = await readJson<RegFile>(REG_KEY, { items: [] })
   const idx = file.items.findIndex((i) => i.id === id)
   if (idx < 0) return null
   const [removed] = file.items.splice(idx, 1)
-  await writeJson(REG_FILE, file)
+  await writeJson(REG_KEY, file)
   return removed
 }
 

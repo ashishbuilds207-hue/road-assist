@@ -77,9 +77,14 @@ export default function DriverActiveClient() {
     if (!driverId && !userId && caseIdParam) {
       params.set('caseId', caseIdParam)
     }
-    const res = await fetch(`/api/dispatch/requests?${params.toString()}`)
-    const data = await res.json()
-    setAllRequests((data.requests || []) as LiveRequest[])
+    try {
+      const res = await fetch(`/api/dispatch/requests?${params.toString()}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setAllRequests((data.requests || []) as LiveRequest[])
+    } catch {
+      // keep previous
+    }
   }, [driverId, userId, caseIdParam])
 
   useEffect(() => {

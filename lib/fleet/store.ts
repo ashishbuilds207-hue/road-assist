@@ -1,9 +1,6 @@
-import { promises as fs } from 'fs'
-import path from 'path'
-import { getDataDir } from '@/lib/data-dir'
+import { readBlob, writeBlob } from '@/lib/store/blob-store'
 
-const DATA_DIR = getDataDir()
-const FLEET_FILE = path.join(DATA_DIR, 'fleet.json')
+const STORE_KEY = 'fleet'
 
 export type FleetTruck = {
   id: string
@@ -43,22 +40,12 @@ type FleetFile = {
   invites: FleetInvite[]
 }
 
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true })
-}
-
 async function readFleet(): Promise<FleetFile> {
-  try {
-    const raw = await fs.readFile(FLEET_FILE, 'utf8')
-    return JSON.parse(raw) as FleetFile
-  } catch {
-    return { trucks: [], invites: [] }
-  }
+  return readBlob<FleetFile>(STORE_KEY, { trucks: [], invites: [] })
 }
 
 async function writeFleet(data: FleetFile) {
-  await ensureDir()
-  await fs.writeFile(FLEET_FILE, JSON.stringify(data, null, 2), 'utf8')
+  await writeBlob(STORE_KEY, data)
 }
 
 export async function listTrucks(companyId: string) {

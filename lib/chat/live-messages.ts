@@ -1,9 +1,6 @@
-import { promises as fs } from 'fs'
-import path from 'path'
-import { getDataDir } from '@/lib/data-dir'
+import { readBlob, writeBlob } from '@/lib/store/blob-store'
 
-const DATA_DIR = getDataDir()
-const FILE = path.join(DATA_DIR, 'live-chat.json')
+const STORE_KEY = 'live-chat'
 
 export type LiveChatMessage = {
   id: string
@@ -42,22 +39,16 @@ type FileShape = {
 }
 
 async function readFile(): Promise<FileShape> {
-  try {
-    const raw = await fs.readFile(FILE, 'utf8')
-    const parsed = JSON.parse(raw) as Partial<FileShape>
-    return {
-      messages: parsed.messages ?? [],
-      typing: parsed.typing ?? {},
-      notifications: parsed.notifications ?? [],
-    }
-  } catch {
-    return { messages: [], typing: {}, notifications: [] }
+  const parsed = await readBlob<Partial<FileShape>>(STORE_KEY, {})
+  return {
+    messages: parsed.messages ?? [],
+    typing: parsed.typing ?? {},
+    notifications: parsed.notifications ?? [],
   }
 }
 
 async function writeFile(data: FileShape) {
-  await fs.mkdir(DATA_DIR, { recursive: true })
-  await fs.writeFile(FILE, JSON.stringify(data, null, 2), 'utf8')
+  await writeBlob(STORE_KEY, data)
 }
 
 function now() {

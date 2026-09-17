@@ -68,6 +68,7 @@ function ProviderJobsInner() {
   const providerId =
     registrationId || storeProviderId?.replace(/^prov-/, '') || storeProviderId
   const [items, setItems] = useState<Incoming[]>([])
+  const [loading, setLoading] = useState(true)
   const [ticks, setTicks] = useState<Record<string, number>>({})
   const [acting, setActing] = useState<string | null>(null)
   const [activeChat, setActiveChat] = useState<Incoming | null>(null)
@@ -76,22 +77,30 @@ function ProviderJobsInner() {
 
   const load = useCallback(async () => {
     if (!providerId) return
-    const res = await fetch(
-      `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`
-    )
-    const data = await res.json()
-    const list = (data.requests || []) as Incoming[]
-    setItems(list)
-    const next: Record<string, number> = {}
-    for (const r of list) {
-      if (r.status === 'PENDING') next[r.id] = r.secondsLeft
+    try {
+      const res = await fetch(
+        `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`
+      )
+      if (!res.ok) return
+      const data = await res.json()
+      const list = (data.requests || []) as Incoming[]
+      setItems(list)
+      const next: Record<string, number> = {}
+      for (const r of list) {
+        if (r.status === 'PENDING') next[r.id] = r.secondsLeft
+      }
+      setTicks(next)
+    } catch {
+      // keep previous list — avoid flicker/vanish on network blips
+    } finally {
+      setLoading(false)
     }
-    setTicks(next)
   }, [providerId])
 
   useEffect(() => {
+    setLoading(true)
     void load()
-    const id = setInterval(() => void load(), 2500)
+    const id = setInterval(() => void load(), 2000)
     return () => clearInterval(id)
   }, [load])
 

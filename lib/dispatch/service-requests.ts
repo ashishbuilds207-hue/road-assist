@@ -1,9 +1,6 @@
-import { promises as fs } from 'fs'
-import path from 'path'
-import { getDataDir } from '@/lib/data-dir'
+import { readBlob, writeBlob } from '@/lib/store/blob-store'
 
-const DATA_DIR = getDataDir()
-const FILE = path.join(DATA_DIR, 'service-requests.json')
+const STORE_KEY = 'service-requests'
 
 export const PROVIDER_ACCEPT_SECONDS = 5 * 60
 
@@ -89,17 +86,11 @@ export type ServiceRequest = {
 type FileShape = { items: ServiceRequest[] }
 
 async function readFile(): Promise<FileShape> {
-  try {
-    const raw = await fs.readFile(FILE, 'utf8')
-    return JSON.parse(raw) as FileShape
-  } catch {
-    return { items: [] }
-  }
+  return readBlob<FileShape>(STORE_KEY, { items: [] })
 }
 
 async function writeFile(data: FileShape) {
-  await fs.mkdir(DATA_DIR, { recursive: true })
-  await fs.writeFile(FILE, JSON.stringify(data, null, 2), 'utf8')
+  await writeBlob(STORE_KEY, data)
 }
 
 function now() {
