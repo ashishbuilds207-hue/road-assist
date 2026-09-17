@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { PortalPageHeader } from '@/components/rsa/portal-page'
+import { LiveRefreshControls } from '@/components/rsa/live-refresh-controls'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -84,30 +85,35 @@ export function AdminDirectoryPage({
   const { toast } = useToast()
   const [items, setItems] = useState<DirectoryUser[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [selected, setSelected] = useState<DirectoryUser | null>(null)
   const [previewDoc, setPreviewDoc] = useState<DocItem | null>(null)
   const [acting, setActing] = useState<string | null>(null)
   const [source, setSource] = useState<string>('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (silent) setRefreshing(true)
+    else setLoading(true)
     try {
       const res = await fetch(
-        `/api/admin/registrations?role=${encodeURIComponent(role)}`
+        `/api/admin/registrations?role=${encodeURIComponent(role)}`,
+        { cache: 'no-store' }
       )
+      if (!res.ok) return
       const data = await res.json()
       setItems(data.items || [])
       setSource(data.source || '')
     } catch {
-      setItems([])
+      if (!silent) setItems([])
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [role])
 
   useEffect(() => {
     void load()
-    const id = setInterval(() => void load(), 5000)
+    const id = setInterval(() => void load(true), 5000)
     return () => clearInterval(id)
   }, [load])
 
@@ -158,7 +164,7 @@ export function AdminDirectoryPage({
         description: `${data.registration?.full_name || 'User'} removed. They will be logged out.`,
       })
       setSelected((prev) => (prev?.id === id ? null : prev))
-      void load()
+      void load(true)
       return
     }
 
@@ -173,7 +179,7 @@ export function AdminDirectoryPage({
     setSelected((prev) =>
       prev?.id === id ? { ...prev, status: data.registration.status } : prev
     )
-    void load()
+    void load(true)
   }
 
   const title = ROLE_LABEL[role] || role
@@ -187,22 +193,15 @@ export function AdminDirectoryPage({
           `Activate, block, or delete ${title.toLowerCase()}. Changes apply live to the user.`
         }
         actions={
-          <div className="flex items-center gap-2">
-            {source && (
-              <span className="text-[11px] text-gray">Source: {source}</span>
-            )}
-            <Button
-              type="button"
-              variant="outline-general"
-              onClick={() => void load()}
-            >
-              Refresh
-            </Button>
-          </div>
+          <LiveRefreshControls
+            source={source}
+            refreshing={refreshing}
+            onRefresh={() => void load(true)}
+          />
         }
       />
 
-      {loading ? (
+      {loading && items.length === 0 ? (
         <div className="flex justify-center py-12">
           <Loader2 className="size-8 animate-spin text-primary" />
         </div>
@@ -213,8 +212,13 @@ export function AdminDirectoryPage({
         />
       ) : (
         <Card className="divide-y divide-gray-200 overflow-hidden p-0">
-          <div className="bg-gray-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray">
-            Records ({items.length})
+          <div className="flex items-center justify-between bg-gray-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray">
+            <span>Records ({items.length})</span>
+            {refreshing ? (
+              <Loader2 className="size-3.5 animate-spin text-primary" />
+            ) : (
+              <span className="size-3.5" aria-hidden />
+            )}
           </div>
           {items.map((u) => {
             const badge = statusBadge(u.status)

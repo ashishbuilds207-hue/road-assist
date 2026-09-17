@@ -10,6 +10,7 @@ import {
   History,
 } from 'lucide-react'
 import { PortalPageHeader } from '@/components/rsa/portal-page'
+import { LiveRefreshControls } from '@/components/rsa/live-refresh-controls'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -69,14 +70,17 @@ function ProviderJobsInner() {
     registrationId || storeProviderId?.replace(/^prov-/, '') || storeProviderId
   const [items, setItems] = useState<Incoming[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [ticks, setTicks] = useState<Record<string, number>>({})
   const [acting, setActing] = useState<string | null>(null)
   const [activeChat, setActiveChat] = useState<Incoming | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [selected, setSelected] = useState<JobDetailRecord | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!providerId) return
+    if (silent) setRefreshing(true)
+    else setLoading(true)
     try {
       const res = await fetch(
         `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`,
@@ -95,13 +99,13 @@ function ProviderJobsInner() {
       // keep previous list — avoid flicker/vanish on network blips
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [providerId])
 
   useEffect(() => {
-    setLoading(true)
     void load()
-    const id = setInterval(() => void load(), 2000)
+    const id = setInterval(() => void load(true), 2000)
     return () => clearInterval(id)
   }, [load])
 
@@ -160,7 +164,7 @@ function ProviderJobsInner() {
         title="Incoming requests"
         description="Active jobs only. Paid / closed cases move to Solved history."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant={showHistory ? 'default' : 'outline-general'}
@@ -169,13 +173,10 @@ function ProviderJobsInner() {
               <History className="size-4" />
               Solved ({history.length})
             </Button>
-            <Button
-              type="button"
-              variant="outline-general"
-              onClick={() => void load()}
-            >
-              Refresh
-            </Button>
+            <LiveRefreshControls
+              refreshing={refreshing || loading}
+              onRefresh={() => void load(true)}
+            />
           </div>
         }
       />

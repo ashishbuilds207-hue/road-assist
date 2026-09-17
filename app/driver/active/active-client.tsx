@@ -7,6 +7,7 @@ import { Phone, MessageSquare, Clock, History } from 'lucide-react'
 import { useCases } from '@/hooks/useCases'
 import { useAuthStore } from '@/stores/authStore'
 import { PortalPageHeader } from '@/components/rsa/portal-page'
+import { LiveRefreshControls } from '@/components/rsa/live-refresh-controls'
 import { EmptyState } from '@/components/rsa/empty-state'
 import { StatusBadge, PriorityBadge } from '@/components/rsa/status-badge'
 import { Card } from '@/components/ui/card'
@@ -68,9 +69,11 @@ export default function DriverActiveClient() {
   const [seconds, setSeconds] = useState(0)
   const [showHistory, setShowHistory] = useState(false)
   const [selected, setSelected] = useState<JobDetailRecord | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
-  const loadRequests = useCallback(async () => {
+  const loadRequests = useCallback(async (silent = false) => {
     if (!driverId && !userId && !caseIdParam) return
+    if (silent) setRefreshing(true)
     const params = new URLSearchParams()
     if (driverId) params.set('driverId', driverId)
     if (userId) params.set('driverUserId', userId)
@@ -86,12 +89,14 @@ export default function DriverActiveClient() {
       setAllRequests((data.requests || []) as LiveRequest[])
     } catch {
       // keep previous
+    } finally {
+      setRefreshing(false)
     }
   }, [driverId, userId, caseIdParam])
 
   useEffect(() => {
     void loadRequests()
-    const id = setInterval(() => void loadRequests(), 2000)
+    const id = setInterval(() => void loadRequests(true), 2000)
     return () => clearInterval(id)
   }, [loadRequests])
 
@@ -170,7 +175,7 @@ export default function DriverActiveClient() {
         title="Active Case"
         description="Open jobs only. Paid cases move to Solved history."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant={showHistory ? 'default' : 'outline-general'}
@@ -179,9 +184,13 @@ export default function DriverActiveClient() {
               <History className="size-4" />
               Solved ({history.length})
             </Button>
-            <Button asChild variant="black">
+            <Button asChild variant="black" size="small">
               <Link href="/driver/request">New request</Link>
             </Button>
+            <LiveRefreshControls
+              refreshing={refreshing}
+              onRefresh={() => void loadRequests(true)}
+            />
           </div>
         }
       />

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { PortalPageHeader } from '@/components/rsa/portal-page'
-import { Card } from '@/components/ui/card'
+import { LiveRefreshControls } from '@/components/rsa/live-refresh-controls'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/rsa/empty-state'
@@ -23,10 +23,12 @@ export default function ProviderInvoicesPage() {
   const providerId =
     registrationId || storeProviderId?.replace(/^prov-/, '') || storeProviderId
   const [rows, setRows] = useState<JobDetailRecord[]>([])
+  const [refreshing, setRefreshing] = useState(false)
   const [selected, setSelected] = useState<JobDetailRecord | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!providerId) return
+    if (silent) setRefreshing(true)
     try {
       const res = await fetch(
         `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`,
@@ -44,12 +46,14 @@ export default function ProviderInvoicesPage() {
       setRows(list)
     } catch {
       // keep previous — smooth shared updates
+    } finally {
+      setRefreshing(false)
     }
   }, [providerId])
 
   useEffect(() => {
     void load()
-    const id = setInterval(() => void load(), 2000)
+    const id = setInterval(() => void load(true), 2000)
     return () => clearInterval(id)
   }, [load])
 
@@ -59,9 +63,15 @@ export default function ProviderInvoicesPage() {
         title="Invoices"
         description="Click an invoice to open full job timing, items, and photos."
         actions={
-          <Button asChild variant="outline-general">
-            <Link href="/provider/jobs">Back to jobs</Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline-general" size="small">
+              <Link href="/provider/jobs">Back to jobs</Link>
+            </Button>
+            <LiveRefreshControls
+              refreshing={refreshing}
+              onRefresh={() => void load(true)}
+            />
+          </div>
         }
       />
       {rows.length === 0 ? (

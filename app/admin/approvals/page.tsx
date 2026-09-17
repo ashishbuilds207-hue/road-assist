@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, CheckCircle2, XCircle, Eye, FileWarning } from 'lucide-react'
 import { PortalPageHeader } from '@/components/rsa/portal-page'
+import { LiveRefreshControls } from '@/components/rsa/live-refresh-controls'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -61,23 +62,35 @@ export default function AdminApprovalsPage() {
   const [tab, setTab] = useState<TabKey>('DRIVER')
   const [items, setItems] = useState<Reg[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [acting, setActing] = useState<string | null>(null)
   const [selected, setSelected] = useState<Reg | null>(null)
   const [previewDoc, setPreviewDoc] = useState<RegDoc | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [infoNote, setInfoNote] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const res = await fetch('/api/admin/registrations?status=PENDING_APPROVAL')
-    const data = await res.json()
-    setItems(data.items || [])
-    setLoading(false)
+  const load = useCallback(async (silent = false) => {
+    if (silent) setRefreshing(true)
+    else setLoading(true)
+    try {
+      const res = await fetch(
+        '/api/admin/registrations?status=PENDING_APPROVAL',
+        { cache: 'no-store' }
+      )
+      if (!res.ok) return
+      const data = await res.json()
+      setItems(data.items || [])
+    } catch {
+      // keep previous list
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
   }, [])
 
   useEffect(() => {
     void load()
-    const id = setInterval(() => void load(), 4000)
+    const id = setInterval(() => void load(true), 4000)
     return () => clearInterval(id)
   }, [load])
 
@@ -133,7 +146,7 @@ export default function AdminApprovalsPage() {
     setRejectReason('')
     setInfoNote('')
     setSelected(null)
-    void load()
+    void load(true)
   }
 
   return (
@@ -142,9 +155,10 @@ export default function AdminApprovalsPage() {
         title="Approvals"
         description="Review real registration applications. Approve only after checking documents. No fake users."
         actions={
-          <Button type="button" variant="outline-general" onClick={() => void load()}>
-            Refresh
-          </Button>
+          <LiveRefreshControls
+            refreshing={refreshing}
+            onRefresh={() => void load(true)}
+          />
         }
       />
 
@@ -162,7 +176,7 @@ export default function AdminApprovalsPage() {
         ))}
       </div>
 
-      {loading ? (
+      {loading && items.length === 0 ? (
         <div className="flex justify-center py-12">
           <Loader2 className="size-8 animate-spin text-primary" />
         </div>

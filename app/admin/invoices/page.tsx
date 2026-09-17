@@ -2,8 +2,9 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { CheckCircle2, CreditCard, RefreshCw } from 'lucide-react'
+import { CheckCircle2, CreditCard } from 'lucide-react'
 import { PortalPageHeader } from '@/components/rsa/portal-page'
+import { LiveRefreshControls } from '@/components/rsa/live-refresh-controls'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +27,7 @@ function AdminInvoicesInner() {
   const { toast } = useToast()
   const [rows, setRows] = useState<JobDetailRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [selected, setSelected] = useState<JobDetailRecord | null>(null)
   const [paying, setPaying] = useState<string | null>(null)
   const [tab, setTab] = useState<'due' | 'all'>(
@@ -37,7 +39,8 @@ function AdminInvoicesInner() {
   }, [tabParam])
 
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true)
+    if (silent) setRefreshing(true)
+    else setLoading(true)
     try {
       const res = await fetch('/api/dispatch/requests?bills=1', {
         cache: 'no-store',
@@ -49,6 +52,7 @@ function AdminInvoicesInner() {
       // keep previous — smooth UX
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -122,7 +126,7 @@ function AdminInvoicesInner() {
         title="Pay & Accept"
         description="Accept provider bills, pay invoices, and view full invoice history. Live for driver & provider."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant={tab === 'due' ? 'default' : 'outline-general'}
@@ -137,14 +141,10 @@ function AdminInvoicesInner() {
             >
               All invoices ({all.length})
             </Button>
-            <Button
-              type="button"
-              variant="outline-general"
-              onClick={() => void load()}
-            >
-              <RefreshCw className="size-4" />
-              Refresh
-            </Button>
+            <LiveRefreshControls
+              refreshing={refreshing}
+              onRefresh={() => void load(true)}
+            />
           </div>
         }
       />

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { PortalPageHeader } from '@/components/rsa/portal-page'
+import { LiveRefreshControls } from '@/components/rsa/live-refresh-controls'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -36,9 +37,11 @@ export default function ProviderActivePage() {
   const providerId =
     registrationId || storeProviderId?.replace(/^prov-/, '') || storeProviderId
   const [rows, setRows] = useState<Row[]>([])
+  const [refreshing, setRefreshing] = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!providerId) return
+    if (silent) setRefreshing(true)
     try {
       const res = await fetch(
         `/api/dispatch/requests?providerId=${encodeURIComponent(providerId)}`,
@@ -49,12 +52,14 @@ export default function ProviderActivePage() {
       setRows((data.requests || []) as Row[])
     } catch {
       // keep previous — smooth shared updates
+    } finally {
+      setRefreshing(false)
     }
   }, [providerId])
 
   useEffect(() => {
     void load()
-    const id = setInterval(() => void load(), 2000)
+    const id = setInterval(() => void load(true), 2000)
     return () => clearInterval(id)
   }, [load])
 
@@ -66,9 +71,15 @@ export default function ProviderActivePage() {
         title="Active Jobs"
         description="Jobs in progress (not paid yet)."
         actions={
-          <Button asChild variant="outline-general">
-            <Link href="/provider/jobs">Incoming & history</Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline-general" size="small">
+              <Link href="/provider/jobs">Incoming & history</Link>
+            </Button>
+            <LiveRefreshControls
+              refreshing={refreshing}
+              onRefresh={() => void load(true)}
+            />
+          </div>
         }
       />
       {active.length === 0 ? (
