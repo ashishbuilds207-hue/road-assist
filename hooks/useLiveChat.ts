@@ -17,6 +17,7 @@ export type LiveMessage = {
   createdAt: string
   mine?: boolean
   isNew?: boolean
+  pending?: boolean
 }
 
 type TypingPeer = {
@@ -49,6 +50,43 @@ function playPing() {
   }
 }
 
+function mergeLists(
+  local: LiveMessage[],
+  remote: LiveMessage[],
+  userId?: string
+): LiveMessage[] {
+  const map = new Map<string, LiveMessage>()
+  for (const m of local) {
+    map.set(m.id, m)
+  }
+  for (const m of remote) {
+    const prev = map.get(m.id)
+    map.set(m.id, {
+      ...prev,
+      ...m,
+      mine: m.senderId === userId,
+      pending: false,
+      isNew: prev?.isNew && !prev.pending ? prev.isNew : undefined,
+    })
+  }
+  // Drop pending locals that match a confirmed remote by body+sender near time
+  const confirmed = Array.from(map.values()).filter((m) => !m.pending)
+  const pending = Array.from(map.values()).filter((m) => m.pending)
+  const keptPending = pending.filter((p) => {
+    return !confirmed.some(
+      (c) =>
+        c.senderId === p.senderId &&
+        c.body === p.body &&
+        Math.abs(
+          new Date(c.createdAt).getTime() - new Date(p.createdAt).getTime()
+        ) < 15000
+    )
+  })
+  return [...confirmed, ...keptPending].sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt)
+  )
+}
+
 export function useLiveChat(opts: {
   conversationId?: string | null
   caseId?: string | null
@@ -64,7 +102,7 @@ export function useLiveChat(opts: {
     peerUserId,
     peerName,
     notifyLink,
-    pollMs = 1200,
+    pollMs = 800,
     enabled = true,
   } = opts
 
@@ -88,6 +126,12 @@ export function useLiveChat(opts: {
   const knownIds = useRef<Set<string>>(new Set())
   const firstLoad = useRef(true)
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refreshInFlight = useRef(false)
+  const messagesRef = useRef<LiveMessage[]>([])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   useEffect(() => {
     if (conversationId) setActive(conversationId)
@@ -96,12 +140,15 @@ export function useLiveChat(opts: {
 
   const refresh = useCallback(async () => {
     if (!conversationId || !enabled) return
+    if (refreshInFlight.current) return
+    refreshInFlight.current = true
     try {
       const res = await fetch(
-        `/api/chat/live?conversationId=${encodeURIComponent(conversationId)}`
+        `/api/chat/live?conversationId=${encodeURIComponent(conversationId)}&_=${Date.now()}`,
+        { cache: 'no-store' }
       )
       if (!res.ok) {
-        // keep last messages — avoid vanish on blips
+        setConnected(false)
         return
       }
       const data = await res.json()
@@ -113,8 +160,8 @@ export function useLiveChat(opts: {
         mine: m.senderId === userId,
       }))
 
-      // Don't wipe a non-empty chat with a transient empty payload
-      if (list.length === 0 && !firstLoad.current) {
+      // Never wipe non-empty local chat with empty remote (race / blip)
+      if (list.length === 0 && messagesRef.current.length > 0) {
         setTyping(null)
         return
       }
@@ -140,10 +187,16 @@ export function useLiveChat(opts: {
       }
 
       firstLoad.current = false
-      setMessages(list)
+      setMessages((prev) => {
+        const merged = mergeLists(prev, list, userId)
+        // Mark newly arrived remote messages
+        return merged.map((m) =>
+          incoming.some((i) => i.id === m.id) ? { ...m, isNew: true } : m
+        )
+      })
 
       const peer = data.typing as TypingPeer
-      if (peer && peer.userId !== userId) {
+      if (peer && peer.userId !== userId && Date.now() - (peer.at || 0) < 5000) {
         setTyping(peer)
         setTypingLocal(conversationId, true)
       } else {
@@ -152,6 +205,8 @@ export function useLiveChat(opts: {
       }
     } catch {
       setConnected(false)
+    } finally {
+      refreshInFlight.current = false
     }
   }, [
     conversationId,
@@ -167,17 +222,49 @@ export function useLiveChat(opts: {
     knownIds.current = new Set()
     firstLoad.current = true
     setMessages([])
+    setConnected(false)
     void refresh()
     if (!conversationId || !enabled) return
+
     const id = setInterval(() => void refresh(), pollMs)
-    return () => clearInterval(id)
+
+    const onFocus = () => void refresh()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVis)
+
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVis)
+    }
   }, [conversationId, enabled, pollMs, refresh])
 
   const send = useCallback(
     async (body: string) => {
       const text = body.trim()
       if (!text || !conversationId || !userId) return false
+
+      const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      const optimistic: LiveMessage = {
+        id: tempId,
+        conversationId,
+        caseId: caseId ?? null,
+        senderId: userId,
+        senderName,
+        senderRole: role ?? null,
+        body: text,
+        createdAt: new Date().toISOString(),
+        mine: true,
+        isNew: true,
+        pending: true,
+      }
+      knownIds.current.add(tempId)
+      setMessages((prev) => [...prev, optimistic])
       setSending(true)
+
       try {
         const res = await fetch('/api/chat/live', {
           method: 'POST',
@@ -194,23 +281,38 @@ export function useLiveChat(opts: {
               notifyLink ||
               (caseId ? `/driver/active?caseId=${caseId}` : null),
           }),
+          cache: 'no-store',
         })
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
         if (!res.ok) {
-          toast({ title: 'Message failed', description: data.error })
+          setMessages((prev) => prev.filter((m) => m.id !== tempId))
+          knownIds.current.delete(tempId)
+          toast({
+            title: 'Message failed',
+            description: data.error || 'Could not send. Try again.',
+          })
           setSending(false)
           return false
         }
         const msg = data.message as LiveMessage
         knownIds.current.add(msg.id)
+        knownIds.current.delete(tempId)
         setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev
-          return [...prev, { ...msg, mine: true, isNew: true }]
+          const withoutTemp = prev.filter((m) => m.id !== tempId)
+          if (withoutTemp.some((m) => m.id === msg.id)) return withoutTemp
+          return [
+            ...withoutTemp,
+            { ...msg, mine: true, isNew: true, pending: false },
+          ]
         })
+        // Pull quickly so peer side / other tabs sync
+        void refresh()
         setSending(false)
         return true
       } catch {
-        toast({ title: 'Message failed', description: 'Network error' })
+        setMessages((prev) => prev.filter((m) => m.id !== tempId))
+        knownIds.current.delete(tempId)
+        toast({ title: 'Message failed', description: 'Network error — retry' })
         setSending(false)
         return false
       }
@@ -224,6 +326,7 @@ export function useLiveChat(opts: {
       peerUserId,
       notifyLink,
       toast,
+      refresh,
     ]
   )
 
@@ -239,7 +342,8 @@ export function useLiveChat(opts: {
           name: senderName,
           typing: isTyping,
         }),
-      })
+        cache: 'no-store',
+      }).catch(() => {})
     },
     [conversationId, userId, senderName]
   )
@@ -249,7 +353,7 @@ export function useLiveChat(opts: {
       if (!conversationId) return
       signalTyping(value.trim().length > 0)
       if (typingTimer.current) clearTimeout(typingTimer.current)
-      typingTimer.current = setTimeout(() => signalTyping(false), 2200)
+      typingTimer.current = setTimeout(() => signalTyping(false), 1800)
     },
     [conversationId, signalTyping]
   )

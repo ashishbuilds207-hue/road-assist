@@ -56,6 +56,7 @@ export function ChatPanel({
     peerUserId,
     peerName,
     notifyLink,
+    pollMs: 700,
     enabled: Boolean(conversationId),
   })
 
@@ -69,11 +70,12 @@ export function ChatPanel({
   }, [messages.length, typing, messages[messages.length - 1]?.id])
 
   const submit = async () => {
-    if (!text.trim()) return
+    if (!text.trim() || sending) return
     const body = text
     setText('')
     onComposerChange('')
-    await send(body)
+    const ok = await send(body)
+    if (!ok) setText(body)
   }
 
   const displayPeer = peerName || 'Connected party'
@@ -176,7 +178,8 @@ export function ChatPanel({
                     'max-w-[85%] break-words rounded-2xl px-3.5 py-2.5 text-sm font-medium leading-relaxed shadow-sm',
                     mine
                       ? 'rounded-br-md bg-primary text-white'
-                      : 'rounded-bl-md border border-gray-300 bg-white text-black'
+                      : 'rounded-bl-md border border-gray-300 bg-white text-black',
+                    m.pending && 'opacity-70'
                   )}
                   style={
                     mine
@@ -192,6 +195,9 @@ export function ChatPanel({
                   }
                 >
                   {m.body}
+                  {m.pending ? (
+                    <span className="ml-2 text-[10px] opacity-80">sending…</span>
+                  ) : null}
                 </div>
               </div>
             )
