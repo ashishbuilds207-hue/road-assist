@@ -14,20 +14,15 @@ export async function GET(req: Request) {
   if (id) {
     const reg = await getRegistrationById(id)
     if (!reg) {
-      return NextResponse.json(
-        { error: 'Not found', deleted: true },
-        { status: 404 }
-      )
+      // Do not mark as deleted — missing rows are common on Vercel /tmp
+      return NextResponse.json({ error: 'Not found', missing: true }, { status: 404 })
     }
     return NextResponse.json({ registration: reg })
   }
   if (phone) {
     const reg = await getRegistrationByPhone(phone, role)
     if (!reg) {
-      return NextResponse.json(
-        { error: 'Not found', deleted: true },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Not found', missing: true }, { status: 404 })
     }
     return NextResponse.json({ registration: reg })
   }

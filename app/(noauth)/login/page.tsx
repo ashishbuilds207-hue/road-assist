@@ -147,7 +147,8 @@ function LoginInner() {
     }
     if (
       data.registration.status === 'REJECTED' ||
-      data.registration.status === 'SUSPENDED'
+      data.registration.status === 'SUSPENDED' ||
+      data.registration.status === 'DEACTIVATED'
     ) {
       setError(`Account status: ${data.registration.status}`)
       return

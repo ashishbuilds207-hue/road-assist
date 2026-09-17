@@ -1,15 +1,15 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { Ban, Clock } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { AuthService } from '@/services/AuthService'
 import { useToast } from '@/components/ui/use-toast'
 
 /**
- * Always polls registration status so admin block/delete applies live.
- * Block → status banner. Delete → forced logout.
+ * Polls registration status for live admin block/activate.
+ * Does NOT logout on 404 — missing rows are normal on serverless /tmp
+ * and must not kick active sessions.
  */
 export function InactiveAccountBanner() {
   const accountStatus = useAuthStore((s) => s.accountStatus)
@@ -17,77 +17,69 @@ export function InactiveAccountBanner() {
   const setAccountStatus = useAuthStore((s) => s.setAccountStatus)
   const profile = useAuthStore((s) => s.profile)
   const { toast } = useToast()
-  const router = useRouter()
 
   useEffect(() => {
     if (!registrationId) return
 
     const poll = async () => {
-      const res = await fetch(
-        `/api/auth/registration-status?id=${encodeURIComponent(registrationId)}`
-      )
-      if (res.status === 404) {
-        const data = await res.json().catch(() => ({}))
-        if (data.deleted) {
-          toast({
-            title: 'Account deleted',
-            description:
-              'An admin removed your account. You have been signed out.',
-          })
-          await AuthService.logout()
-          router.replace('/login')
-        }
-        return
-      }
-      if (!res.ok) return
-      const data = await res.json()
-      const status = data.registration?.status as string | undefined
-      if (!status) return
+      try {
+        const res = await fetch(
+          `/api/auth/registration-status?id=${encodeURIComponent(registrationId)}`
+        )
+        // Missing registration (404) — keep current session; do not logout
+        if (res.status === 404 || !res.ok) return
 
-      if (status === 'ACTIVE') {
-        if (accountStatus !== 'ACTIVE') {
-          setAccountStatus('ACTIVE')
-          await AuthService.activateRegisteredSession({
-            ...data.registration,
-            status: 'ACTIVE',
-          })
-          toast({
-            title: 'Account approved',
-            description: 'Your account is active again.',
-          })
-        }
-        return
-      }
+        const data = await res.json()
+        const status = data.registration?.status as string | undefined
+        if (!status) return
 
-      if (
-        status === 'REJECTED' ||
-        status === 'SUSPENDED' ||
-        status === 'REQUIRES_REVIEW' ||
-        status === 'DEACTIVATED'
-      ) {
-        if (accountStatus !== status) {
-          setAccountStatus(status as never)
-          if (status === 'SUSPENDED') {
+        if (status === 'ACTIVE') {
+          if (accountStatus !== 'ACTIVE') {
+            setAccountStatus('ACTIVE')
+            await AuthService.activateRegisteredSession({
+              ...data.registration,
+              status: 'ACTIVE',
+            })
             toast({
-              title: 'Account blocked',
-              description: 'An admin blocked your account.',
+              title: 'Account approved',
+              description: 'Your account is active again.',
             })
           }
+          return
         }
-        return
-      }
 
-      if (status === 'PENDING' || status === 'PENDING_APPROVAL') {
-        if (accountStatus !== 'PENDING_APPROVAL') {
-          setAccountStatus('PENDING_APPROVAL')
+        if (
+          status === 'REJECTED' ||
+          status === 'SUSPENDED' ||
+          status === 'REQUIRES_REVIEW' ||
+          status === 'DEACTIVATED'
+        ) {
+          if (accountStatus !== status) {
+            setAccountStatus(status as never)
+            if (status === 'SUSPENDED') {
+              toast({
+                title: 'Account blocked',
+                description: 'An admin blocked your account.',
+              })
+            }
+          }
+          return
         }
+
+        if (status === 'PENDING' || status === 'PENDING_APPROVAL') {
+          if (accountStatus !== 'PENDING_APPROVAL') {
+            setAccountStatus('PENDING_APPROVAL')
+          }
+        }
+      } catch {
+        // network blip — ignore
       }
     }
 
     void poll()
-    const id = setInterval(() => void poll(), 2000)
+    const id = setInterval(() => void poll(), 4000)
     return () => clearInterval(id)
-  }, [accountStatus, registrationId, setAccountStatus, toast, router])
+  }, [accountStatus, registrationId, setAccountStatus, toast])
 
   if (accountStatus === 'ACTIVE' || !registrationId) return null
 

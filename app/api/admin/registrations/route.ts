@@ -103,13 +103,22 @@ export async function POST(req: Request) {
     }
 
     if (action === 'delete') {
-      const removed = await deleteRegistration(id)
-      if (!removed) {
-        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      // Soft-delete so status polls still work; hard remove breaks Vercel /tmp sessions
+      const updated = await setRegistrationStatus(
+        id,
+        'DEACTIVATED',
+        body.reason || 'Deleted by admin'
+      )
+      if (!updated) {
+        const removed = await deleteRegistration(id)
+        if (!removed) {
+          return NextResponse.json({ error: 'Not found' }, { status: 404 })
+        }
+        return NextResponse.json({ deleted: true, registration: removed })
       }
       return NextResponse.json({
         deleted: true,
-        registration: removed,
+        registration: updated,
       })
     }
 
