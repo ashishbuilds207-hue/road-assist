@@ -7,6 +7,7 @@ import { useAuthStore, type AccountStatus } from '@/stores/authStore'
 
 /**
  * Hydrates auth, then syncs ACTIVE/PENDING from registration API (source of truth).
+ * One API call on portal open — no background webhook.
  */
 export function usePortalAuth(loginPath = '/login') {
   const router = useRouter()
@@ -37,7 +38,7 @@ export function usePortalAuth(loginPath = '/login') {
         return
       }
 
-      // Source of truth: registration API
+      // Source of truth: registration API (once on enter)
       try {
         let url = ''
         if (state.registrationId) {
@@ -47,7 +48,7 @@ export function usePortalAuth(loginPath = '/login') {
         }
 
         if (url) {
-          const r = await fetch(url)
+          const r = await fetch(url, { cache: 'no-store' })
           if (r.ok) {
             const data = await r.json()
             const reg = data.registration
@@ -66,19 +67,15 @@ export function usePortalAuth(loginPath = '/login') {
                 accountStatus: status,
                 registrationId: reg.id ?? state.registrationId,
               })
-            } else {
-              // No registration record → inactive by default
-              setAccountStatus('PENDING')
             }
-          } else {
-            setAccountStatus('PENDING')
+            // Missing status → keep hydrated session status
+          } else if (r.status !== 404) {
+            console.warn('portal auth registration-status', r.status)
           }
-        } else {
-          // No registration id/phone → force inactive for non-admin
-          setAccountStatus('PENDING')
         }
-      } catch {
-        setAccountStatus('PENDING')
+      } catch (e) {
+        console.warn('portal auth registration-status error', e)
+        // Keep existing session status on network error
       }
 
       if (!cancelled) setReady(true)

@@ -1,85 +1,104 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { Ban, Clock } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { AuthService } from '@/services/AuthService'
 import { useToast } from '@/components/ui/use-toast'
 
 /**
- * Polls registration status for live admin block/activate.
- * Does NOT logout on 404 — missing rows are normal on serverless /tmp
- * and must not kick active sessions.
+ * Checks registration status via normal API whenever the user opens/changes a page.
+ * No background polling / webhook.
  */
 export function InactiveAccountBanner() {
+  const pathname = usePathname()
   const accountStatus = useAuthStore((s) => s.accountStatus)
   const registrationId = useAuthStore((s) => s.registrationId)
+  const role = useAuthStore((s) => s.role)
   const setAccountStatus = useAuthStore((s) => s.setAccountStatus)
   const profile = useAuthStore((s) => s.profile)
   const { toast } = useToast()
 
-  useEffect(() => {
-    if (!registrationId) return
+  const checkStatus = useCallback(async () => {
+    if (!registrationId && !(profile?.phone && role)) return
+    if (role === 'ADMIN') return
 
-    const poll = async () => {
-      try {
-        const res = await fetch(
-          `/api/auth/registration-status?id=${encodeURIComponent(registrationId)}`
-        )
-        // Missing registration (404) — keep current session; do not logout
-        if (res.status === 404 || !res.ok) return
-
-        const data = await res.json()
-        const status = data.registration?.status as string | undefined
-        if (!status) return
-
-        if (status === 'ACTIVE') {
-          if (accountStatus !== 'ACTIVE') {
-            setAccountStatus('ACTIVE')
-            await AuthService.activateRegisteredSession({
-              ...data.registration,
-              status: 'ACTIVE',
-            })
-            toast({
-              title: 'Account approved',
-              description: 'Your account is active again.',
-            })
-          }
-          return
-        }
-
-        if (
-          status === 'REJECTED' ||
-          status === 'SUSPENDED' ||
-          status === 'REQUIRES_REVIEW' ||
-          status === 'DEACTIVATED'
-        ) {
-          if (accountStatus !== status) {
-            setAccountStatus(status as never)
-            if (status === 'SUSPENDED') {
-              toast({
-                title: 'Account blocked',
-                description: 'An admin blocked your account.',
-              })
-            }
-          }
-          return
-        }
-
-        if (status === 'PENDING' || status === 'PENDING_APPROVAL') {
-          if (accountStatus !== 'PENDING_APPROVAL') {
-            setAccountStatus('PENDING_APPROVAL')
-          }
-        }
-      } catch {
-        // network blip — ignore
+    try {
+      let url = ''
+      if (registrationId) {
+        url = `/api/auth/registration-status?id=${encodeURIComponent(registrationId)}`
+      } else if (profile?.phone && role) {
+        url = `/api/auth/registration-status?phone=${encodeURIComponent(profile.phone)}&role=${encodeURIComponent(role)}`
       }
-    }
+      if (!url) return
 
-    void poll()
-    const id = setInterval(() => void poll(), 4000)
-    return () => clearInterval(id)
-  }, [accountStatus, registrationId, setAccountStatus, toast])
+      const res = await fetch(url, { cache: 'no-store' })
+      // Missing registration — keep session; do not force logout
+      if (res.status === 404) return
+      if (!res.ok) {
+        console.warn('registration-status failed', res.status)
+        return
+      }
+
+      const data = await res.json()
+      const status = data.registration?.status as string | undefined
+      if (!status) return
+
+      const current = useAuthStore.getState().accountStatus
+
+      if (status === 'ACTIVE') {
+        if (current !== 'ACTIVE') {
+          setAccountStatus('ACTIVE')
+          await AuthService.activateRegisteredSession({
+            ...data.registration,
+            status: 'ACTIVE',
+          })
+          toast({
+            title: 'Account approved',
+            description: 'Your account is active again.',
+          })
+        }
+        return
+      }
+
+      if (
+        status === 'REJECTED' ||
+        status === 'SUSPENDED' ||
+        status === 'REQUIRES_REVIEW' ||
+        status === 'DEACTIVATED'
+      ) {
+        if (current !== status) {
+          setAccountStatus(status as never)
+          if (status === 'SUSPENDED') {
+            toast({
+              title: 'Account blocked',
+              description: 'An admin blocked your account.',
+            })
+          } else if (status === 'DEACTIVATED') {
+            toast({
+              title: 'Account deleted',
+              description: 'This account was removed by an admin.',
+            })
+          }
+        }
+        return
+      }
+
+      if (status === 'PENDING' || status === 'PENDING_APPROVAL') {
+        if (current !== 'PENDING_APPROVAL') {
+          setAccountStatus('PENDING_APPROVAL')
+        }
+      }
+    } catch (e) {
+      console.warn('registration-status error', e)
+    }
+  }, [registrationId, profile?.phone, role, setAccountStatus, toast])
+
+  // Call API on every page change / mount — no interval webhook
+  useEffect(() => {
+    void checkStatus()
+  }, [pathname, checkStatus])
 
   if (accountStatus === 'ACTIVE' || !registrationId) return null
 

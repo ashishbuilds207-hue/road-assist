@@ -103,7 +103,14 @@ export function AdminDirectoryPage({
         `/api/admin/registrations?role=${encodeURIComponent(role)}`,
         { cache: 'no-store' }
       )
-      if (!res.ok) return
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast({
+          title: 'Load failed',
+          description: err.error || `Could not load ${role} list (${res.status}).`,
+        })
+        return
+      }
       const data = await res.json()
       if (actingRef.current) return
       const list = ((data.items || []) as DirectoryUser[]).filter(
@@ -113,16 +120,19 @@ export function AdminDirectoryPage({
       setSource(data.source || '')
     } catch {
       if (!silent) setItems([])
+      toast({
+        title: 'Load failed',
+        description: 'Network error. Try Refresh.',
+      })
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [role])
+  }, [role, toast])
 
+  // Normal API on page open only — no background webhook/polling
   useEffect(() => {
     void load()
-    const id = setInterval(() => void load(true), 5000)
-    return () => clearInterval(id)
   }, [load])
 
   const act = async (
@@ -224,7 +234,7 @@ export function AdminDirectoryPage({
         title={title}
         description={
           description ||
-          `Activate, block, or delete ${title.toLowerCase()}. Changes apply live to the user.`
+          `Activate, block, or delete ${title.toLowerCase()}. Refresh to reload the list.`
         }
         actions={
           <LiveRefreshControls
